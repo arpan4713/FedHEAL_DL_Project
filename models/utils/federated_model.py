@@ -24,16 +24,11 @@ class FederatedModel(nn.Module):
         self.transform = transform
         ######
 
-        self.global_model = nets_list  # or however `nets_list` should be used in this context
-        self.num_clients = args.num_clients
-        self.mode = args.mode
+        self.global_model = nets_list
+        self.num_clients = getattr(args, "num_clients", 10)  # Default to 10 clients if not provided
         self.history = [None for _ in range(self.num_clients)]
-        
-        # Initialize increase_history and decrease_history unconditionally
         self.increase_history = [None for _ in range(self.num_clients)]
         self.decrease_history = [None for _ in range(self.num_clients)]
-        
-        # Other initialization for FederatedModel
 
         ######
 
