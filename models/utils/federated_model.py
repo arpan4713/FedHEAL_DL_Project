@@ -192,7 +192,7 @@ class FederatedModel(nn.Module):
     def consistency_mask(self, client_id, update_diff):
         
 
-        if updates is None:
+        if update_diff is None:
             raise ValueError(f"Updates for client {client_id} are None.")
         
          # Define updates at the start of the function
