@@ -24,11 +24,13 @@ class MyDigits(data.Dataset):
         self.dataset = self.__build_truncated_dataset__()
 
     def __build_truncated_dataset__(self):
+        print(f"Downloading {self.data_name} dataset...")
         if self.data_name == 'mnist':
             dataobj = MNIST(self.root, self.train, self.transform, self.target_transform, self.download)
         elif self.data_name == 'usps':
             dataobj = USPS(self.root, self.train, self.transform, self.target_transform, self.download)
         elif self.data_name == 'svhn':
+            print(f"Root for SVHN: {self.root}")
             if self.train:
                 dataobj = SVHN(self.root, 'train', self.transform, self.target_transform, self.download)
             else:
