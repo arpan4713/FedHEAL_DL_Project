@@ -198,42 +198,44 @@ class FederatedModel(nn.Module):
         for i in online_clients:
             self.nets_list[i].load_state_dict(global_params_new)
     
-    def consistency_mask(self, client_id, update_diff):
-        
-
-        if update_diff is None:
-            raise ValueError(f"Updates for client {client_id} are None.")
-        
-         # Define updates at the start of the function
-        updates = update_diff 
-
-        # Initialize increase_history for the client with zeros
-        # self.increase_history[client_id] = {key: torch.zeros_like(val) for key, val in updates.items()}
-
-        if self.epoch_index == 0:
-            self.increase_history[client_id] = {key: torch.zeros_like(val) for key, val in updates.items()}
-            
-            for key in updates:
-                self.increase_history[client_id][key] = (updates[key] >= 0).float()
-                
-            return {key: torch.ones_like(val) for key, val in updates.items()}
-        
-        mask = {}
-        for key in updates:
-            positive_consistency = self.increase_history[client_id][key]
-            negative_consistency = 1 - self.increase_history[client_id][key]
-            
-            consistency = torch.where(updates[key] >= 0, positive_consistency, negative_consistency)
-            
-            mask[key] = (consistency > self.args.threshold).float()
-            
-        for key in updates:
-            increase = (updates[key] >= 0).float()
-            self.increase_history[client_id][key] = (self.increase_history[client_id][key] * self.epoch_index + increase) / (self.epoch_index + 1)
-            
-        return mask
+def consistency_mask(self, client_id, update_diff):
+    # Raise an error if update_diff is None
+    if update_diff is None:
+        raise ValueError(f"Updates for client {client_id} are None.")
     
-    
+    # Define updates at the start of the function
+    updates = update_diff
 
+    # Initialize increase_history for the client with zeros if it hasn't been initialized
+    if client_id not in self.increase_history:
+        self.increase_history[client_id] = {key: torch.zeros_like(val) for key, val in updates.items()}
 
+    # Epoch 0 specific processing
+    if self.epoch_index == 0:
+        for key in updates:
+            # Set initial increase history based on whether updates[key] is non-negative
+            self.increase_history[client_id][key] = (updates[key] >= 0).float()
+        # Return mask with all ones for epoch 0
+        return {key: torch.ones_like(val) for key, val in updates.items()}
 
+    # Generate mask based on consistency calculations
+    mask = {}
+    for key in updates:
+        positive_consistency = self.increase_history[client_id][key]
+        negative_consistency = 1 - self.increase_history[client_id][key]
+        
+        # Choose consistency based on update sign
+        consistency = torch.where(updates[key] >= 0, positive_consistency, negative_consistency)
+        
+        # Apply threshold to generate mask
+        mask[key] = (consistency > self.args.threshold).float()
+
+    # Update increase history for each key
+    for key in updates:
+        increase = (updates[key] >= 0).float()
+        # Update increase history using exponential moving average
+        self.increase_history[client_id][key] = (
+            self.increase_history[client_id][key] * self.epoch_index + increase
+        ) / (self.epoch_index + 1)
+        
+    return mask
