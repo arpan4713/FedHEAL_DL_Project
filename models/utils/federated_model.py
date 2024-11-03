@@ -25,6 +25,7 @@ class FederatedModel(nn.Module):
 
         self.random_state = np.random.RandomState()
         self.online_num = np.ceil(self.args.parti_num * self.args.online_ratio).item()
+        self.increase_history = {}
         self.online_num = int(self.online_num)
 
         self.global_net = None
@@ -189,6 +190,13 @@ class FederatedModel(nn.Module):
             self.nets_list[i].load_state_dict(global_params_new)
     
     def consistency_mask(self, client_id, update_diff):
+
+        if update_diff is None:
+            raise ValueError(f"Updates for client {client_id} are None.")
+
+        self.increase_history[client_id] = {key: torch.zeros_like(val) for key, val in updates.items()}
+
+                
         updates = update_diff 
         if self.epoch_index == 0:
             self.increase_history[client_id] = {key: torch.zeros_like(val) for key, val in updates.items()}
