@@ -199,7 +199,7 @@ class FederatedModel(nn.Module):
         updates = update_diff 
 
         # Initialize increase_history for the client with zeros
-        self.increase_history[client_id] = {key: torch.zeros_like(val) for key, val in updates.items()}
+        # self.increase_history[client_id] = {key: torch.zeros_like(val) for key, val in updates.items()}
 
         if self.epoch_index == 0:
             self.increase_history[client_id] = {key: torch.zeros_like(val) for key, val in updates.items()}
