@@ -22,6 +22,20 @@ class FederatedModel(nn.Module):
         self.nets_list = nets_list
         self.args = args
         self.transform = transform
+        ######
+
+        self.global_model = nets_list  # or however `nets_list` should be used in this context
+        self.num_clients = args.num_clients
+        self.mode = args.mode
+        self.history = [None for _ in range(self.num_clients)]
+        
+        # Initialize increase_history and decrease_history unconditionally
+        self.increase_history = [None for _ in range(self.num_clients)]
+        self.decrease_history = [None for _ in range(self.num_clients)]
+        
+        # Other initialization for FederatedModel
+
+        ######
 
         self.random_state = np.random.RandomState()
         self.online_num = np.ceil(self.args.parti_num * self.args.online_ratio).item()
