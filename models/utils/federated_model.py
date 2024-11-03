@@ -190,11 +190,13 @@ class FederatedModel(nn.Module):
             self.nets_list[i].load_state_dict(global_params_new)
     
     def consistency_mask(self, client_id, update_diff):
-         # Define updates at the start of the function
-        updates = update_diff 
+        
 
         if updates is None:
             raise ValueError(f"Updates for client {client_id} are None.")
+        
+         # Define updates at the start of the function
+        updates = update_diff 
 
         # Initialize increase_history for the client with zeros
         self.increase_history[client_id] = {key: torch.zeros_like(val) for key, val in updates.items()}
