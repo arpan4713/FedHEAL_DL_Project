@@ -12,12 +12,12 @@ from sklearn.cluster import SpectralClustering
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
 from sklearn.metrics import silhouette_score
 import matplotlib.pyplot as plt
+from argparse import ArgumentParser
 from datasets import Priv_NAMES as DATASET_NAMES
 from models import get_all_models
-from argparse import ArgumentParser
 from utils.args import add_management_args
 from datasets import get_prive_dataset
-from models import get_model
+from models import get_model  # Ensure this is correctly implemented
 from utils.training import train
 from utils.best_args import best_args
 from utils.conf import set_random_seed
@@ -37,7 +37,7 @@ RECLUSTER_INTERVAL = 5
 CHECKPOINT_DIR = "./checkpoints"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-# Debug and Log Initialization
+# Debugging Logs
 def log_model_parameters(model):
     params = list(model.parameters())
     print(f"Model initialized with {len(params)} parameters.")
@@ -210,6 +210,228 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+
+
+
+
+
+
+
+
+
+
+# import os
+# import sys
+# import socket
+# import torch
+# import torch.multiprocessing
+# import warnings
+# import numpy as np
+# import uuid
+# import datetime
+# from sklearn.metrics.pairwise import cosine_similarity
+# from sklearn.cluster import SpectralClustering
+# from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
+# from sklearn.metrics import silhouette_score
+# import matplotlib.pyplot as plt
+# from datasets import Priv_NAMES as DATASET_NAMES
+# from models import get_all_models
+# from argparse import ArgumentParser
+# from utils.args import add_management_args
+# from datasets import get_prive_dataset
+# from models import get_model
+# from utils.training import train
+# from utils.best_args import best_args
+# from utils.conf import set_random_seed
+
+# torch.multiprocessing.set_sharing_strategy('file_system')
+# warnings.filterwarnings("ignore")
+
+# # Config paths
+# conf_path = os.getcwd()
+# sys.path.extend([
+#     conf_path, f"{conf_path}/datasets", f"{conf_path}/backbone", f"{conf_path}/models"
+# ])
+
+# # Clustering and checkpointing configuration
+# NUM_CLUSTERS = 3
+# RECLUSTER_INTERVAL = 5
+# CHECKPOINT_DIR = "./checkpoints"
+# os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+
+# # Debug and Log Initialization
+# def log_model_parameters(model):
+#     params = list(model.parameters())
+#     print(f"Model initialized with {len(params)} parameters.")
+#     if not params:
+#         raise ValueError("The model has no trainable parameters. Ensure it is properly initialized.")
+
+# def save_checkpoint(round_num, model, args):
+#     checkpoint = {
+#         'round_num': round_num,
+#         'model_state_dict': model.state_dict(),
+#         'args': vars(args)
+#     }
+#     checkpoint_path = os.path.join(CHECKPOINT_DIR, f"checkpoint_round_{round_num}.pth")
+#     torch.save(checkpoint, checkpoint_path)
+#     print(f"Checkpoint saved: {checkpoint_path}")
+
+# def load_checkpoint(model, args):
+#     checkpoint_files = sorted([f for f in os.listdir(CHECKPOINT_DIR) if f.startswith("checkpoint")])
+#     if not checkpoint_files:
+#         print("No checkpoint found. Starting from scratch.")
+#         return 1
+#     latest_checkpoint = os.path.join(CHECKPOINT_DIR, checkpoint_files[-1])
+#     checkpoint = torch.load(latest_checkpoint)
+#     model.load_state_dict(checkpoint['model_state_dict'])
+#     for key, value in checkpoint['args'].items():
+#         setattr(args, key, value)
+#     print(f"Resuming from checkpoint: {latest_checkpoint}")
+#     return checkpoint['round_num']
+
+# def calculate_similarity_matrix(client_data):
+#     return cosine_similarity(client_data)
+
+# def perform_spectral_clustering(similarity_matrix, num_clusters):
+#     clustering = SpectralClustering(
+#         n_clusters=num_clusters,
+#         affinity='precomputed',
+#         random_state=42
+#     )
+#     return clustering.fit_predict(similarity_matrix)
+
+# def advanced_clustering(client_data):
+#     best_score = -1
+#     best_labels = None
+
+#     for k in range(2, 10):  # Test multiple cluster sizes
+#         similarity_matrix = calculate_similarity_matrix(client_data)
+#         labels = perform_spectral_clustering(similarity_matrix, num_clusters=k)
+#         score = silhouette_score(similarity_matrix, labels)
+
+#         if score > best_score:
+#             best_score = score
+#             best_labels = labels
+
+#     print(f"Best clustering score: {best_score}")
+#     return best_labels
+
+# def dynamic_clustering(round_num, client_data, num_clusters):
+#     if round_num % RECLUSTER_INTERVAL == 0:
+#         print(f"Clustering at round {round_num}...")
+#         return advanced_clustering(client_data)
+#     return None
+
+# def get_client_data(participants):
+#     return [np.random.rand(100) for _ in range(participants)]
+
+# def compute_gradients(model, data, learning_rate):
+#     if not list(model.parameters()):
+#         raise ValueError("Cannot compute gradients: Model has no trainable parameters.")
+    
+#     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+#     model.train()
+#     optimizer.zero_grad()
+
+#     inputs, labels = torch.tensor(data), torch.randint(0, 2, (len(data),))
+#     outputs = model(inputs)
+#     loss = torch.nn.CrossEntropyLoss()(outputs, labels)
+#     loss.backward()
+
+#     gradients = [param.grad.clone() for param in model.parameters()]
+#     return gradients
+
+# def aggregate_gradients(model, gradients_list, cluster_labels):
+#     num_clusters = max(cluster_labels) + 1
+#     aggregated_gradients = []
+
+#     for i, params in enumerate(zip(*gradients_list)):
+#         cluster_weights = np.zeros(num_clusters)
+#         for label in cluster_labels:
+#             cluster_weights[label] += 1
+#         cluster_weights /= len(cluster_labels)
+
+#         weighted_avg_grad = sum(weight * grad[i] for weight, grad in zip(cluster_weights, gradients_list))
+#         aggregated_gradients.append(weighted_avg_grad)
+
+#     for param, grad in zip(model.parameters(), aggregated_gradients):
+#         param.grad = grad
+
+# def train_with_fedheal_enhancements(model, priv_dataset, args):
+#     client_data = get_client_data(args.parti_num)
+#     start_round = load_checkpoint(model, args)
+#     learning_rates = np.full(args.parti_num, args.beta)
+
+#     for round_num in range(start_round, args.communication_epoch + 1):
+#         print(f"Round {round_num} starting...")
+
+#         cluster_labels = dynamic_clustering(round_num, client_data, NUM_CLUSTERS)
+#         if cluster_labels is not None:
+#             print(f"Clusters formed: {cluster_labels}")
+
+#         global_gradients = []
+#         for client_id, data in enumerate(client_data):
+#             client_performance = np.random.rand()  # Replace with actual performance evaluation
+#             if client_performance > args.threshold:
+#                 gradients = compute_gradients(model, data, learning_rate=learning_rates[client_id])
+#                 global_gradients.append(gradients)
+#             else:
+#                 print(f"Client {client_id} skipped due to low performance.")
+
+#         if global_gradients:
+#             aggregate_gradients(model, global_gradients, cluster_labels)
+#         else:
+#             print("No client updates were included this round.")
+
+#         save_checkpoint(round_num, model, args)
+#         print(f"Round {round_num} completed.\n")
+
+# def parse_args():
+#     parser = ArgumentParser(description='You Only Need Me', allow_abbrev=False)
+#     parser.add_argument('--device_id', type=int, default=0)
+#     parser.add_argument('--communication_epoch', type=int, default=200)
+#     parser.add_argument('--local_epoch', type=int, default=10)
+#     parser.add_argument('--parti_num', type=int, default=20)
+#     parser.add_argument('--seed', type=int, default=0)
+#     parser.add_argument('--rand_dataset', type=int, default=0)
+#     parser.add_argument('--model', type=str, default='fedavgheal', choices=get_all_models())
+#     parser.add_argument('--structure', type=str, default='homogeneity')
+#     parser.add_argument('--dataset', type=str, default='fl_digits', choices=DATASET_NAMES)
+#     parser.add_argument('--alpha', type=float, default=0.5)
+#     parser.add_argument('--online_ratio', type=float, default=1)
+#     parser.add_argument('--learning_decay', type=int, default=0)
+#     parser.add_argument('--averaging', type=str, default='weight')
+#     parser.add_argument('--wHEAL', type=int, default=1)
+#     parser.add_argument('--threshold', type=float, default=0.3)
+#     parser.add_argument('--beta', type=float, default=0.4)
+#     torch.set_num_threads(4)
+#     add_management_args(parser)
+#     args = parser.parse_args()
+#     best = best_args[args.dataset][args.model]
+#     for key, value in best.items():
+#         setattr(args, key, value)
+#     if args.seed is not None:
+#         set_random_seed(args.seed)
+#     return args
+
+# def main(args=None):
+#     if args is None:
+#         args = parse_args()
+#     args.conf_jobnum = str(uuid.uuid4())
+#     args.conf_timestamp = str(datetime.datetime.now())
+#     args.conf_host = socket.gethostname()
+#     priv_dataset = get_prive_dataset(args)
+#     backbones_list = priv_dataset.get_backbone(args.parti_num, None)
+#     model = get_model(backbones_list, args, priv_dataset.get_transform())
+#     log_model_parameters(model)
+#     train_with_fedheal_enhancements(model, priv_dataset, args)
+#     test_loader = priv_dataset.get_test_loader()
+#     device = torch.device(f"cuda:{args.device_id}" if torch.cuda.is_available() else "cpu")
+#     model.to(device)
+#     evaluate_and_plot(model, test_loader, device)
+
+# if __name__ == '__main__':
+#     main()
 
 
 
