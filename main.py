@@ -1,167 +1,260 @@
 import os
 import sys
-import socket
 import torch
-import torch.multiprocessing
 import warnings
 import numpy as np
-import uuid
-import datetime
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.cluster import SpectralClustering
-from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
-import matplotlib.pyplot as plt
-from datasets import Priv_NAMES as DATASET_NAMES
-from models import get_all_models
 from argparse import ArgumentParser
-from utils.args import add_management_args
+from models import get_all_models, get_model
 from datasets import get_prive_dataset
-from models import get_model
+from utils.args import add_management_args
 from utils.training import train
-from utils.best_args import best_args
 from utils.conf import set_random_seed
+from utils.checkpoints import save_checkpoint, load_checkpoint
+from sklearn.cluster import SpectralClustering
+from sklearn.metrics.pairwise import cosine_similarity
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 warnings.filterwarnings("ignore")
 
-# Paths and configs
+# Checkpoints directory
 CHECKPOINT_DIR = "./checkpoints"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-# Constants for clustering
+# Clustering settings
 NUM_CLUSTERS = 3
 RECLUSTER_INTERVAL = 5
 
-# Adaptive learning rate scheduler
-def get_lr_scheduler(optimizer):
-    return torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
-
-# Save checkpoints
-def save_checkpoint(round_num, model, optimizer, args):
-    checkpoint = {
-        'round_num': round_num,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'args': vars(args)
-    }
-    checkpoint_path = os.path.join(CHECKPOINT_DIR, f"checkpoint_round_{round_num}.pth")
-    torch.save(checkpoint, checkpoint_path)
-    print(f"Checkpoint saved: {checkpoint_path}")
-
-# Load checkpoints
-def load_checkpoint(model, optimizer, args):
-    checkpoint_files = sorted([f for f in os.listdir(CHECKPOINT_DIR) if f.startswith("checkpoint")])
-    if not checkpoint_files:
-        print("No checkpoint found. Starting training from scratch.")
-        return 1
-    latest_checkpoint = os.path.join(CHECKPOINT_DIR, checkpoint_files[-1])
-    checkpoint = torch.load(latest_checkpoint)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    for key, value in checkpoint['args'].items():
-        setattr(args, key, value)
-    print(f"Resuming from checkpoint: {latest_checkpoint}")
-    return checkpoint['round_num']
-
-# Perform clustering
-def perform_clustering(round_num, client_data):
-    if round_num % RECLUSTER_INTERVAL == 0:
-        print(f"Performing clustering at round {round_num}...")
-        similarity_matrix = cosine_similarity(client_data)
-        clustering = SpectralClustering(n_clusters=NUM_CLUSTERS, affinity='precomputed', random_state=42)
-        cluster_labels = clustering.fit_predict(similarity_matrix)
-        print(f"Clusters formed: {cluster_labels}")
-        return cluster_labels
-    return None
-
-# Cluster-aware training
-def train_clustered(model, priv_dataset, args):
-    client_data = [np.random.rand(100) for _ in range(args.parti_num)]
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.local_lr, momentum=0.9)
-    lr_scheduler = get_lr_scheduler(optimizer)
-    start_round = load_checkpoint(model, optimizer, args)
-    for round_num in range(start_round, args.communication_epoch + 1):
-        print(f"Round {round_num} starting...")
-        cluster_labels = perform_clustering(round_num, client_data)
-        if cluster_labels is not None:
-            # Cluster-wise aggregation (placeholder logic for demonstration)
-            print("Performing cluster-wise aggregation...")
-        train(model, priv_dataset, args)
-        save_checkpoint(round_num, model, optimizer, args)
-        lr_scheduler.step()
-        print(f"Round {round_num} completed.\n")
-
-# Evaluation functions (unchanged from original script)
-def evaluate_model(model, test_loader, device):
-    model.eval()
-    y_true, y_scores = [], []
-    with torch.no_grad():
-        for data, labels in test_loader:
-            data, labels = data.to(device), labels.to(device)
-            outputs = model(data)
-            probabilities = torch.softmax(outputs, dim=1)[:, 1]
-            y_scores.extend(probabilities.cpu().numpy())
-            y_true.extend(labels.cpu().numpy())
-    fpr, tpr, _ = roc_curve(y_true, y_scores)
-    precision, recall, _ = precision_recall_curve(y_true, y_scores)
-    return {
-        'fpr': fpr, 'tpr': tpr, 'roc_auc': auc(fpr, tpr),
-        'precision': precision, 'recall': recall, 'pr_auc': average_precision_score(y_true, y_scores)
-    }
-
-def plot_metrics(metrics):
-    plt.figure(figsize=(10, 5))
-    plt.subplot(1, 2, 1)
-    plt.plot(metrics['fpr'], metrics['tpr'], label=f"ROC Curve (AUC = {metrics['roc_auc']:.2f})")
-    plt.plot([0, 1], [0, 1], 'k--')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.legend()
-    plt.subplot(1, 2, 2)
-    plt.plot(metrics['recall'], metrics['precision'], label=f"PR Curve (AP = {metrics['pr_auc']:.2f})")
-    plt.xlabel('Recall')
-    plt.ylabel('Precision')
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
 def parse_args():
-    parser = ArgumentParser(description='Improved FedAvg Training', allow_abbrev=False)
-    parser.add_argument('--device_id', type=int, default=0, help='Device ID')
-    parser.add_argument('--communication_epoch', type=int, default=200, help='Communication epochs')
-    parser.add_argument('--local_epoch', type=int, default=10, help='Local epochs')
-    parser.add_argument('--local_lr', type=float, default=0.01, help='Local learning rate')  # Fixed missing argument
+    parser = ArgumentParser(description='FedHEAL Training', allow_abbrev=False)
+    parser.add_argument('--device_id', type=int, default=0, help='GPU Device ID')
+    parser.add_argument('--communication_epoch', type=int, default=200, help='Number of communication rounds')
+    parser.add_argument('--local_epoch', type=int, default=10, help='Local epochs for each client')
+    parser.add_argument('--local_lr', type=float, default=0.01, help='Local learning rate for clients')
     parser.add_argument('--parti_num', type=int, default=20, help='Number of participants')
     parser.add_argument('--model', type=str, default='fedavgheal', choices=get_all_models(), help='Model name')
-    parser.add_argument('--dataset', type=str, default='fl_digits', choices=DATASET_NAMES, help='Dataset name')
-    parser.add_argument('--seed', type=int, default=0, help='Random seed')
-    parser.add_argument('--rand_dataset', type=int, default=0, help='Random dataset seed')
+    parser.add_argument('--dataset', type=str, default='fl_digits', help='Dataset to use')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument('--rand_dataset', type=int, default=1, help='Random dataset seed')
     parser.add_argument('--structure', type=str, default='homogeneity', help='Data distribution structure')
-    parser.add_argument('--alpha', type=float, default=0.5, help='Alpha for Dirichlet sampler')
+    parser.add_argument('--alpha', type=float, default=0.5, help='Alpha for Dirichlet sampling')
     parser.add_argument('--online_ratio', type=float, default=1.0, help='Ratio of online clients')
     parser.add_argument('--learning_decay', type=int, default=0, help='Learning rate decay option')
     parser.add_argument('--averaging', type=str, default='weight', help='Averaging strategy option')
     parser.add_argument('--wHEAL', type=int, default=1, help='Enable HEAL mechanism')
-    parser.add_argument('--threshold', type=float, default=0.3, help='Threshold for HEAL')
+    parser.add_argument('--threshold', type=float, default=0.3, help='HEAL threshold')
     parser.add_argument('--beta', type=float, default=0.4, help='Momentum update beta')
     add_management_args(parser)
     args = parser.parse_args()
     set_random_seed(args.seed)
     return args
 
-def main(args=None):
-    if args is None:
-        args = parse_args()
-    priv_dataset = get_prive_dataset(args)
-    model = get_model(priv_dataset.get_backbone(args.parti_num, None), args, priv_dataset.get_transform())
-    print(f"Model parameters: {list(model.parameters())}")  # Debugging print
-    train_clustered(model, priv_dataset, args)
+def dynamic_clustering(round_num, client_data, num_clusters):
+    if round_num % RECLUSTER_INTERVAL == 0:
+        similarity_matrix = cosine_similarity(client_data)
+        clustering = SpectralClustering(n_clusters=num_clusters, affinity='precomputed', random_state=42)
+        cluster_labels = clustering.fit_predict(similarity_matrix)
+        print(f"Clustering performed at round {round_num}: {cluster_labels}")
+        return cluster_labels
+    return None
+
+def train_clustered(model, priv_dataset, args):
     device = torch.device(f"cuda:{args.device_id}" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    evaluate_and_plot(model, priv_dataset.get_test_loader(), device)
+    
+    client_data = [np.random.rand(100) for _ in range(args.parti_num)]
+    optimizer = torch.optim.SGD(model.parameters(), lr=args.local_lr, momentum=0.9)
+
+    start_round = load_checkpoint(model, optimizer, args, CHECKPOINT_DIR)
+    for round_num in range(start_round, args.communication_epoch + 1):
+        print(f"Starting round {round_num}...")
+        cluster_labels = dynamic_clustering(round_num, client_data, NUM_CLUSTERS)
+        if cluster_labels is not None:
+            print(f"Clusters formed: {cluster_labels}")
+        train(model, priv_dataset, args)
+        save_checkpoint(round_num, model, optimizer, args, CHECKPOINT_DIR)
+        print(f"Round {round_num} completed.\n")
+
+def main():
+    args = parse_args()
+    priv_dataset = get_prive_dataset(args)
+    backbone_list = priv_dataset.get_backbone(args.parti_num, None)
+    model = get_model(backbone_list, args, priv_dataset.get_transform())
+
+    if not list(model.parameters()):
+        raise ValueError("The model has no trainable parameters. Check the model initialization.")
+
+    train_clustered(model, priv_dataset, args)
 
 if __name__ == '__main__':
     main()
+
+
+
+
+# import os
+# import sys
+# import socket
+# import torch
+# import torch.multiprocessing
+# import warnings
+# import numpy as np
+# import uuid
+# import datetime
+# from sklearn.metrics.pairwise import cosine_similarity
+# from sklearn.cluster import SpectralClustering
+# from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
+# import matplotlib.pyplot as plt
+# from datasets import Priv_NAMES as DATASET_NAMES
+# from models import get_all_models
+# from argparse import ArgumentParser
+# from utils.args import add_management_args
+# from datasets import get_prive_dataset
+# from models import get_model
+# from utils.training import train
+# from utils.best_args import best_args
+# from utils.conf import set_random_seed
+
+# torch.multiprocessing.set_sharing_strategy('file_system')
+# warnings.filterwarnings("ignore")
+
+# # Paths and configs
+# CHECKPOINT_DIR = "./checkpoints"
+# os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+
+# # Constants for clustering
+# NUM_CLUSTERS = 3
+# RECLUSTER_INTERVAL = 5
+
+# # Adaptive learning rate scheduler
+# def get_lr_scheduler(optimizer):
+#     return torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+
+# # Save checkpoints
+# def save_checkpoint(round_num, model, optimizer, args):
+#     checkpoint = {
+#         'round_num': round_num,
+#         'model_state_dict': model.state_dict(),
+#         'optimizer_state_dict': optimizer.state_dict(),
+#         'args': vars(args)
+#     }
+#     checkpoint_path = os.path.join(CHECKPOINT_DIR, f"checkpoint_round_{round_num}.pth")
+#     torch.save(checkpoint, checkpoint_path)
+#     print(f"Checkpoint saved: {checkpoint_path}")
+
+# # Load checkpoints
+# def load_checkpoint(model, optimizer, args):
+#     checkpoint_files = sorted([f for f in os.listdir(CHECKPOINT_DIR) if f.startswith("checkpoint")])
+#     if not checkpoint_files:
+#         print("No checkpoint found. Starting training from scratch.")
+#         return 1
+#     latest_checkpoint = os.path.join(CHECKPOINT_DIR, checkpoint_files[-1])
+#     checkpoint = torch.load(latest_checkpoint)
+#     model.load_state_dict(checkpoint['model_state_dict'])
+#     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+#     for key, value in checkpoint['args'].items():
+#         setattr(args, key, value)
+#     print(f"Resuming from checkpoint: {latest_checkpoint}")
+#     return checkpoint['round_num']
+
+# # Perform clustering
+# def perform_clustering(round_num, client_data):
+#     if round_num % RECLUSTER_INTERVAL == 0:
+#         print(f"Performing clustering at round {round_num}...")
+#         similarity_matrix = cosine_similarity(client_data)
+#         clustering = SpectralClustering(n_clusters=NUM_CLUSTERS, affinity='precomputed', random_state=42)
+#         cluster_labels = clustering.fit_predict(similarity_matrix)
+#         print(f"Clusters formed: {cluster_labels}")
+#         return cluster_labels
+#     return None
+
+# # Cluster-aware training
+# def train_clustered(model, priv_dataset, args):
+#     client_data = [np.random.rand(100) for _ in range(args.parti_num)]
+#     optimizer = torch.optim.SGD(model.parameters(), lr=args.local_lr, momentum=0.9)
+#     lr_scheduler = get_lr_scheduler(optimizer)
+#     start_round = load_checkpoint(model, optimizer, args)
+#     for round_num in range(start_round, args.communication_epoch + 1):
+#         print(f"Round {round_num} starting...")
+#         cluster_labels = perform_clustering(round_num, client_data)
+#         if cluster_labels is not None:
+#             # Cluster-wise aggregation (placeholder logic for demonstration)
+#             print("Performing cluster-wise aggregation...")
+#         train(model, priv_dataset, args)
+#         save_checkpoint(round_num, model, optimizer, args)
+#         lr_scheduler.step()
+#         print(f"Round {round_num} completed.\n")
+
+# # Evaluation functions (unchanged from original script)
+# def evaluate_model(model, test_loader, device):
+#     model.eval()
+#     y_true, y_scores = [], []
+#     with torch.no_grad():
+#         for data, labels in test_loader:
+#             data, labels = data.to(device), labels.to(device)
+#             outputs = model(data)
+#             probabilities = torch.softmax(outputs, dim=1)[:, 1]
+#             y_scores.extend(probabilities.cpu().numpy())
+#             y_true.extend(labels.cpu().numpy())
+#     fpr, tpr, _ = roc_curve(y_true, y_scores)
+#     precision, recall, _ = precision_recall_curve(y_true, y_scores)
+#     return {
+#         'fpr': fpr, 'tpr': tpr, 'roc_auc': auc(fpr, tpr),
+#         'precision': precision, 'recall': recall, 'pr_auc': average_precision_score(y_true, y_scores)
+#     }
+
+# def plot_metrics(metrics):
+#     plt.figure(figsize=(10, 5))
+#     plt.subplot(1, 2, 1)
+#     plt.plot(metrics['fpr'], metrics['tpr'], label=f"ROC Curve (AUC = {metrics['roc_auc']:.2f})")
+#     plt.plot([0, 1], [0, 1], 'k--')
+#     plt.xlabel('False Positive Rate')
+#     plt.ylabel('True Positive Rate')
+#     plt.legend()
+#     plt.subplot(1, 2, 2)
+#     plt.plot(metrics['recall'], metrics['precision'], label=f"PR Curve (AP = {metrics['pr_auc']:.2f})")
+#     plt.xlabel('Recall')
+#     plt.ylabel('Precision')
+#     plt.legend()
+#     plt.tight_layout()
+#     plt.show()
+
+# def parse_args():
+#     parser = ArgumentParser(description='Improved FedAvg Training', allow_abbrev=False)
+#     parser.add_argument('--device_id', type=int, default=0, help='Device ID')
+#     parser.add_argument('--communication_epoch', type=int, default=200, help='Communication epochs')
+#     parser.add_argument('--local_epoch', type=int, default=10, help='Local epochs')
+#     parser.add_argument('--local_lr', type=float, default=0.01, help='Local learning rate')  # Fixed missing argument
+#     parser.add_argument('--parti_num', type=int, default=20, help='Number of participants')
+#     parser.add_argument('--model', type=str, default='fedavgheal', choices=get_all_models(), help='Model name')
+#     parser.add_argument('--dataset', type=str, default='fl_digits', choices=DATASET_NAMES, help='Dataset name')
+#     parser.add_argument('--seed', type=int, default=0, help='Random seed')
+#     parser.add_argument('--rand_dataset', type=int, default=0, help='Random dataset seed')
+#     parser.add_argument('--structure', type=str, default='homogeneity', help='Data distribution structure')
+#     parser.add_argument('--alpha', type=float, default=0.5, help='Alpha for Dirichlet sampler')
+#     parser.add_argument('--online_ratio', type=float, default=1.0, help='Ratio of online clients')
+#     parser.add_argument('--learning_decay', type=int, default=0, help='Learning rate decay option')
+#     parser.add_argument('--averaging', type=str, default='weight', help='Averaging strategy option')
+#     parser.add_argument('--wHEAL', type=int, default=1, help='Enable HEAL mechanism')
+#     parser.add_argument('--threshold', type=float, default=0.3, help='Threshold for HEAL')
+#     parser.add_argument('--beta', type=float, default=0.4, help='Momentum update beta')
+#     add_management_args(parser)
+#     args = parser.parse_args()
+#     set_random_seed(args.seed)
+#     return args
+
+# def main(args=None):
+#     if args is None:
+#         args = parse_args()
+#     priv_dataset = get_prive_dataset(args)
+#     model = get_model(priv_dataset.get_backbone(args.parti_num, None), args, priv_dataset.get_transform())
+#     print(f"Model parameters: {list(model.parameters())}")  # Debugging print
+#     train_clustered(model, priv_dataset, args)
+#     device = torch.device(f"cuda:{args.device_id}" if torch.cuda.is_available() else "cpu")
+#     model.to(device)
+#     evaluate_and_plot(model, priv_dataset.get_test_loader(), device)
+
+# if __name__ == '__main__':
+#     main()
 
 
 
