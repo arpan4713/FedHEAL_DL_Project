@@ -133,9 +133,21 @@ def parse_args():
     parser.add_argument('--parti_num', type=int, default=20, help='Number of participants')
     parser.add_argument('--model', type=str, default='fedavgheal', choices=get_all_models(), help='Model name')
     parser.add_argument('--dataset', type=str, default='fl_digits', choices=DATASET_NAMES, help='Dataset name')
+    parser.add_argument('--seed', type=int, default=0, help='Random seed')
+    parser.add_argument('--rand_dataset', type=int, default=0, help='Random dataset seed')
+    parser.add_argument('--structure', type=str, default='homogeneity', help='Data distribution structure')
+    parser.add_argument('--alpha', type=float, default=0.5, help='Alpha for Dirichlet sampler')
+    parser.add_argument('--online_ratio', type=float, default=1.0, help='Ratio of online clients')
+    parser.add_argument('--learning_decay', type=int, default=0, help='Learning rate decay option')
+    parser.add_argument('--averaging', type=str, default='weight', help='Averaging strategy option')
+    parser.add_argument('--wHEAL', type=int, default=1, help='Enable HEAL mechanism')
+    parser.add_argument('--threshold', type=float, default=0.3, help='Threshold for HEAL')
+    parser.add_argument('--beta', type=float, default=0.4, help='Momentum update beta')
+    add_management_args(parser)
     args = parser.parse_args()
     set_random_seed(args.seed)
     return args
+
 
 def main(args=None):
     if args is None:
