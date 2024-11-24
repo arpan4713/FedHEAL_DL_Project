@@ -212,7 +212,11 @@ def parse_args():
     parser.add_argument('--parti_num', type=int, default=20, help='Number of participants')
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
     parser.add_argument('--model', type=str, default='fedavgheal', choices=get_all_models(), help='Model name')
-    parser.add_argument('--dataset', type=str, default='fl_digits', choices=DATASET_NAMES + ['svhn'], help='Dataset')
+
+    # Correctly merge DATASET_NAMES keys with 'svhn'
+    available_datasets = list(DATASET_NAMES.keys()) + ['svhn']
+    parser.add_argument('--dataset', type=str, default='fl_digits', choices=available_datasets, help='Dataset')
+
     torch.set_num_threads(4)
     add_management_args(parser)
     args = parser.parse_args()
@@ -225,6 +229,7 @@ def parse_args():
         set_random_seed(args.seed)
 
     return args
+
 
 
 def main(args=None):
