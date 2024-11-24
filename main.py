@@ -130,6 +130,7 @@ def parse_args():
     parser.add_argument('--device_id', type=int, default=0, help='Device ID')
     parser.add_argument('--communication_epoch', type=int, default=200, help='Communication epochs')
     parser.add_argument('--local_epoch', type=int, default=10, help='Local epochs')
+    parser.add_argument('--local_lr', type=float, default=0.01, help='Local learning rate')  # <-- Add this line
     parser.add_argument('--parti_num', type=int, default=20, help='Number of participants')
     parser.add_argument('--model', type=str, default='fedavgheal', choices=get_all_models(), help='Model name')
     parser.add_argument('--dataset', type=str, default='fl_digits', choices=DATASET_NAMES, help='Dataset name')
@@ -147,6 +148,7 @@ def parse_args():
     args = parser.parse_args()
     set_random_seed(args.seed)
     return args
+
 
 
 def main(args=None):
